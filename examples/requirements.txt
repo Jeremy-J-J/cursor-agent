@@ -1,0 +1,5 @@
+# Requirements for chunked processing examples
+cursor-agent-tools>=0.1.0
+
+# For running the examples
+asyncio

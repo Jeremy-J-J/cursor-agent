@@ -1,0 +1,82 @@
+import "$OSC2LIB/projectLibs/project_scenario_base/project_base_scenario_model_ssp.osc"
+
+extend test_config:
+    set map = "$OSC2LIB/maps/M781_FTX_Roundabout_4_Legs.xodr"
+
+extend top.main:
+    # Roundabout intersection scenario with blocking vehicle
+    round_entry: roundabout_entry
+    round_exit: roundabout_exit
+    round_whole: roundabout_from_entry
+    out_road: one_way_road
+    internal_road: internal_road_with_conflict
+
+    # Traffic participants
+    ego_vehicle: vehicle  # Blue vehicle (main car)
+    red_vehicle: vehicle  # Red vehicle (right turn)
+    yellow_vehicle: vehicle  # Yellow vehicle (left turn)
+    blocker_vehicle: vehicle  # Adversary blocker (blocking vehicle)
+    obstacle_vehicle: vehicle  # Front obstacle vehicle
+
+    # Scenario parameters
+    test_speed: speed with:
+        keep(test_speed in [20kph..80kph])
+
+    ego_offset: length with:
+        keep(ego_offset <= round_entry.length - 5m)
+
+    # Behavior configuration
+    keep(sut.car.ftx_driver.bypass_behavior.enable == true)
+
+    # Log output
+    on @sut_to.start:
+        call logger.log_info("round_entry.id: $(round_entry.id)")
+        call logger.log_info("internal_road.conflicting_road_id: $(internal_road.conflicting_road_id)")
+        call logger.log_info("out_road.id: $(out_road.id)")
+
+    do serial():
+        sut_to: parallel():
+            # Ego vehicle: straight through the roundabout
+            serial():
+                # Phase 1: Enter roundabout and go through internal road
+                phase1: sut.car.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(round_entry, at: start, end_offset: ego_offset)
+                    along(internal_road, at: start)
+                    along(out_road, at: end, run_mode: best_effort)
+
+                # Phase 2: Navigate around the roundabout
+                phase2: sut.car.drive() with:  
+                    along(round_whole)
+                    keep_speed()
+
+            # Red vehicle: right turn from outer lane
+            serial():
+                red_vehicle.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(out_road, at: start, start_offset: [10m+ego_offset-round_entry.length..50m+ego_offset-round_entry.length])
+                    lane(rightmost: true)
+                    keep_speed()
+
+            # Yellow vehicle: left turn from inner lane
+            serial():
+                yellow_vehicle.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(out_road, at: start, start_offset: [10m+ego_offset-round_entry.length..50m+ego_offset-round_entry.length])
+                    lane(leftmost: true)
+                    keep_speed()
+
+            # Blocker vehicle: follows ego vehicle maintaining relative speed
+            serial():
+                blocker_vehicle.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(internal_road.conflicting_road, at: start, end_offset: [10m+ego_offset..50m+ego_offset])
+                    lane(rightmost: true)
+                    keep_speed()
+
+            # Obstacle vehicle: slow moving in front of ego vehicle
+            serial():
+                obstacle_vehicle.drive() with:
+                    speed(10kph, at: start, run_mode: best_effort)  # Slow speed
+                    along(out_road, at: start, start_offset: [27m..27m])  # 27 meters ahead
+                    keep_speed()

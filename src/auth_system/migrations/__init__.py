@@ -1,0 +1,1 @@
+# Migration directory for auth_system app

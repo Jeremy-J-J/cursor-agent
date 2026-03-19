@@ -1,0 +1,265 @@
+# Copyright (C) 2025 Foretellix Ltd (\"Foretellix\")
+# This source code file is licensed to you under Foretellix' End User License
+# Agreement, you may not use this file except in compliance with the License.
+# You are not allowed to distribute it to any third party without Foretellix'
+# written approval.
+# If you choose to modify this code (in compliance with the license terms),
+# you do it at your own risk, and Foretellix will no longer supply any
+# support or maintenance services for this source code.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Ghost head test scenario - bicycle crossing in front of a truck
+# Road scenario: Urban intersection
+# Participants: Ego vehicle (white car), leading car, truck, oncoming car, bicyclist, NPC vehicles, bicycle
+# Initial positions: Ego in intersection front straight lane, leading car 15m ahead, truck 5m ahead in opposite lane, oncoming car 40m from intersection, bicyclist 3.56m from intersection, blue truck, blue pickup, red car in opposite lane, bicycle crossing from right
+# Motion: Ego and leading car straight, oncoming car from north to south, bicyclist from west to east, blue truck and pickup forward, red car forward, bicycle crossing from right to left
+# Ego intention: Straight through intersection
+# Trigger condition: Leading car reaches s=20m position to trigger bicyclist crossing
+
+import "$PROJECT_DIR/projectLibs/project_scenario_base/project_base_scenario_model_ssp.osc"
+import "$OSC2LIB/scenarios/free_drive/ego_free_drive_auto_gen/ego_free_drive_auto_gen_one_way_road_top.osc"
+import "$OSC2LIB/scenarios/free_drive/npc_driving/npc_free_driving_top.osc"
+
+extend test_config:
+    set map = "$OSC2LIB/maps/M499_FTX_suburban.xodr"
+
+scenario sut.ghost_head_bicycle_test_run inherits project_base_scenario:
+    keep(default scenario_str_generic == "ghost_head_bicycle_test_run")
+    
+    # Test road
+    my_road: one_way_road
+    
+    # Ego vehicle (white car)
+    ego_vehicle: vehicle
+    
+    # Leading car
+    leading_car: vehicle
+    keep(leading_car.vehicle_category == sedan)
+    
+    # Truck (large vehicle)
+    truck: vehicle
+    keep(truck.vehicle_category == box_truck)
+    
+    # Oncoming car
+    oncoming_car: vehicle
+    keep(oncoming_car.vehicle_category == sedan)
+    
+    # Bicyclist
+    bicyclist: cyclist
+    
+    # Bicycle
+    bicycle: bicycle
+    
+    # NPC vehicles
+    blue_truck: vehicle
+    keep(blue_truck.vehicle_category == box_truck)
+    
+    blue_pickup: vehicle
+    keep(blue_pickup.vehicle_category == pickup_truck)
+    
+    red_car: vehicle
+    keep(red_car.vehicle_category == sedan)
+    
+    # Ego lane (straight lane)
+    ego_lane: int with:
+        keep(it in [1, 2])
+    
+    # Truck lane (opposite lane)
+    truck_lane: int with:
+        keep(it in [1, 2])
+        keep(it != ego_lane)
+    
+    # Oncoming car lane
+    oncoming_lane: int with:
+        keep(it in [1, 2])
+        keep(it != ego_lane)
+    
+    # Bicyclist lane (crossing from right)
+    bicyclist_lane: int with:
+        keep(it in [1, 2])
+    
+    # Start offset
+    start_offset: length with:
+        keep(it <= my_road.length - 150m)
+    
+    # Ego speed
+    ego_speed: speed with:
+        keep(default it == 40kph)
+    
+    # Leading car speed
+    leading_car_speed: speed with:
+        keep(default it == 40kph)
+    
+    # Truck speed
+    truck_speed: speed with:
+        keep(default it == 40kph)
+    
+    # Oncoming car speed
+    oncoming_car_speed: speed with:
+        keep(default it == 40kph)
+    
+    # Bicyclist speed
+    bicyclist_speed: speed with:
+        keep(default it == 15kph)
+    
+    # Bicycle speed
+    bicycle_speed: speed with:
+        keep(default it == 15kph)
+    
+    # NPC vehicle speeds
+    blue_truck_speed: speed with:
+        keep(default it == 40kph)
+    
+    blue_pickup_speed: speed with:
+        keep(default it == 40kph)
+    
+    red_car_speed: speed with:
+        keep(default it == 40kph)
+    
+    # Distances
+    leading_car_distance: length with:
+        keep(default it == 15m)
+    
+    truck_distance: length with:
+        keep(default it == 5m)
+    
+    oncoming_car_distance: length with:
+        keep(default it == 40m)
+    
+    bicyclist_distance: length with:
+        keep(default it == 3.56m)
+    
+    # Trigger distance for bicyclist crossing
+    trigger_distance: length with:
+        keep(default it == 20m)
+    
+    # Duration of the test
+    duration_time: time with:
+        keep(it >= 10s)
+    
+    # Set up the scenario
+    keep(sut.car.ftx_driver.bypass_behavior.allow_opposite_left_side == true)
+
+    on @set_up.start:
+        call logger.log_info("Ego speed: $(ego_speed)")
+        call logger.log_info("Leading car speed: $(leading_car_speed)")
+        call logger.log_info("Truck speed: $(truck_speed)")
+        call logger.log_info("Oncoming car speed: $(oncoming_car_speed)")
+        call logger.log_info("Bicyclist speed: $(bicyclist_speed)")
+        call logger.log_info("Bicycle speed: $(bicycle_speed)")
+        call logger.log_info("Leading car distance: $(leading_car_distance)")
+        call logger.log_info("Truck distance: $(truck_distance)")
+        call logger.log_info("Oncoming car distance: $(oncoming_car_distance)")
+        call logger.log_info("Bicyclist distance: $(bicyclist_distance)")
+        call logger.log_info("Trigger distance: $(trigger_distance)")
+        call logger.log_info("Duration time: $(duration_time)")
+
+    do serial():
+        set_up: parallel():
+            # Ego vehicle driving
+            ego_free_drive_phase: sut.ego_free_drive_auto_gen_one_way_road() with:
+                keep(it.gen_ego_speed_at_start == ego_speed)
+                keep(it.ego_road_element == my_road)
+                keep(it.gen_min_lanes == 2)
+                keep(it.gen_max_lanes == 2)
+                keep(it.gen_ego_lane_at_start == ego_lane)
+                keep(it.ego_driving_duration == duration_time)
+            
+            # Leading car driving
+            leading_car_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == leading_car_distance)
+                keep(it.npc_initial_speed == leading_car_speed)
+                keep(it.npc_target_speed == leading_car_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == ego_lane)
+                keep(it.npc_target_lane == ego_lane)
+                keep(it.ref_car == sut.car)
+            
+            # Truck driving (stationary)
+            truck_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == truck_distance)
+                keep(it.npc_initial_speed == truck_speed)
+                keep(it.npc_target_speed == truck_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == truck_lane)
+                keep(it.npc_target_lane == truck_lane)
+                keep(it.ref_car == sut.car)
+            
+            # Oncoming car driving
+            oncoming_car_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == oncoming_car_distance)
+                keep(it.npc_initial_speed == oncoming_car_speed)
+                keep(it.npc_target_speed == oncoming_car_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == oncoming_lane)
+                keep(it.npc_target_lane == oncoming_lane)
+                keep(it.ref_car == sut.car)
+            
+            # Blue truck driving
+            blue_truck_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == 10m)
+                keep(it.npc_initial_speed == blue_truck_speed)
+                keep(it.npc_target_speed == blue_truck_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == ego_lane)
+                keep(it.npc_target_lane == ego_lane)
+                keep(it.ref_car == sut.car)
+            
+            # Blue pickup driving
+            blue_pickup_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == 15m)
+                keep(it.npc_initial_speed == blue_pickup_speed)
+                keep(it.npc_target_speed == blue_pickup_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == (ego_lane - 1))
+                keep(it.npc_target_lane == (ego_lane - 1))
+                keep(it.ref_car == sut.car)
+            
+            # Red car driving
+            red_car_driving: sut.npc_free_driving() with:
+                keep(it.npc_relative_position == 20m)
+                keep(it.npc_initial_speed == red_car_speed)
+                keep(it.npc_target_speed == red_car_speed)
+                keep(it.npc_duration == duration_time)
+                keep(it.npc_initial_lane == oncoming_lane)
+                keep(it.npc_target_lane == oncoming_lane)
+                keep(it.ref_car == sut.car)
+            
+            # Bicyclist and bicycle crossing
+            bicyclist_crossing: parallel():
+                # Bicyclist appears and moves
+                call bicyclist.appear()
+                bicyclist.move() with:
+                    duration(5s)
+                
+                # Bicycle appears and moves
+                call bicycle.appear()
+                bicycle.move() with:
+                    duration(5s)
+        
+        # Trigger the bicyclist crossing when leading car reaches trigger distance
+        trigger_phase: parallel():
+            # Wait for leading car to reach trigger distance
+            wait_for_distance: sut.car.drive() with:
+                along(my_road, at: start)
+                distance(trigger_distance)
+            
+            # Then trigger bicyclist crossing
+            trigger_bicyclist: serial():
+                call bicyclist.appear()
+                call bicycle.appear()
+                bicyclist.move() with:
+                    duration(5s)
+                bicycle.move() with:
+                    duration(5s)
+
+extend top.main:
+    do sut.ghost_head_bicycle_test_run()
+
+extend test_additional_parameters:
+    const test_index: string
+
+extend test_config:
+    set test_name = "ghost_head_bicycle_test_run"
+    set additional_parameters.test_index = "auto_20251120_164500"

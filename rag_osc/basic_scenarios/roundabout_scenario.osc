@@ -1,0 +1,84 @@
+import "$PROJECT_DIR/projectLibs/project_scenario_base/project_base_scenario_model_ssp.osc"
+
+extend test_config:
+    set map = "$OSC2LIB/maps/M781_FTX_Roundabout_4_Legs.xodr"
+
+extend top.main:
+    # Road scenario: Roundabout intersection
+    # Scenario participants: Ego vehicle (sut), Deceptive vehicle (npc), Other vehicle (red car)
+    # Initial positions: Ego vehicle on right lane at roundabout entrance, deceptive vehicle on left lane, 15m apart
+    # Motion directions: Deceptive vehicle first decelerates and moves right to pretend to leave, then suddenly accelerates and returns to original lane to cut off ego vehicle; Ego vehicle accelerates after seeing deceptive vehicle decelerate
+    
+    # Define road elements
+    round_entry: roundabout_entry
+    round_exit: roundabout_exit
+    round_whole: roundabout_from_entry
+    out_road: one_way_road
+    internal_road: internal_road_with_conflict
+    
+    # Define vehicles
+    sut: vehicle  # Ego vehicle (main vehicle)
+    npc: vehicle  # Deceptive vehicle (opponent)
+    other_vehicle: vehicle  # Red car (other vehicle)
+    
+    # Scenario parameters
+    test_speed: speed with:
+        keep(test_speed in [20kph..80kph])
+    
+    ego_offset: length with:
+        keep(ego_offset <= round_entry.length - 5m)
+    
+    # Behavior configuration
+    keep(sut.car.ftx_driver.bypass_behavior.enable == true)
+    
+    # Log output
+    on @sut_to.start:
+        call logger.log_info("round_entry.id: $(round_entry.id)")
+        call logger.log_info("internal_road.conflicting_road_id: $(internal_road.conflicting_road_id)")
+        call logger.log_info("out_road.id: $(out_road.id)")
+    
+    do serial():
+        sut_to: parallel():
+            # Ego vehicle: entering roundabout and navigating
+            serial():
+                # Phase 1: From roundabout entrance to internal road, then to exit road
+                phase1: sut.car.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(round_entry, at: start, end_offset: ego_offset)
+                    along(internal_road, at: start)
+                    along(out_road, at: end, run_mode: best_effort)
+                
+                # Phase 2: Navigate around the roundabout
+                phase2: sut.car.drive() with:  
+                    along(round_whole)
+                    keep_speed()
+            
+            # Deceptive vehicle: behavior that mimics leaving roundabout then cutting off
+            serial():
+                # Deceptive vehicle starts with normal behavior
+                npc.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(round_entry, at: start, end_offset: [ego_offset - 15m..ego_offset - 5m])
+                    keep_speed()
+                
+                # Deceptive vehicle decelerates and moves right to pretend to leave
+                npc.decelerate_and_move_right() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(round_entry, at: start, end_offset: [ego_offset - 15m..ego_offset - 5m])
+                    decelerate(5kph, duration: 1s)
+                    move_right(1m, duration: 1s)
+                
+                # Deceptive vehicle suddenly accelerates and returns to original lane to cut off
+                npc.accelerate_and_cut_off() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    along(round_entry, at: start, end_offset: [ego_offset - 15m..ego_offset - 5m])
+                    accelerate(10kph, duration: 1s)
+                    move_left(1m, duration: 1s)
+            
+            # Other vehicle: red car in the scene
+            serial():
+                other_vehicle.drive() with:
+                    speed(test_speed, at: start, run_mode: best_effort)
+                    lane(rightmost: true)
+                    along(out_road, at: start, start_offset: [10m+ego_offset-round_entry.length..50m+ego_offset-round_entry.length])
+                    keep_speed()
