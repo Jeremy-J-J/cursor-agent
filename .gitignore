@@ -2,4 +2,4 @@ make_seed
 
 **/__pycache__
 generated_scenarios*
-
+**.egg-info/
