@@ -7,6 +7,8 @@ including permission requests, options, and status management.
 
 import enum
 import json
+import os
+import threading
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Any
 
@@ -14,6 +16,31 @@ from .logger import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
+
+
+def _input_with_timeout(prompt: str, timeout: int = 10, default: str = "n") -> str:
+    """Read user input with a timeout; return `default` if no input within `timeout` seconds."""
+    result: List[str] = []
+    event = threading.Event()
+
+    def _read() -> None:
+        try:
+            value = input(prompt)
+            result.append(value)
+        except EOFError:
+            result.append(default)
+        finally:
+            event.set()
+
+    thread = threading.Thread(target=_read, daemon=True)
+    thread.start()
+
+    timed_out = not event.wait(timeout=timeout)
+    if timed_out:
+        print(f"\n[Auto-selected '{default}' after {timeout}s timeout]")
+        return default
+
+    return result[0] if result else default
 
 
 class PermissionStatus(enum.Enum):
@@ -163,8 +190,17 @@ class PermissionManager:
         print(f"\n🔒 Permission Request: {operation}")
         print(f"Details: {json.dumps(details, indent=2)}")
 
+        # In unattended/non-interactive runs, stdin may be EOF immediately.
+        # To keep automation working, default to allow in YOLO mode, deny otherwise.
+        default_choice = "y" if self.options.yolo_mode else "n"
+        timeout_seconds = int(os.environ.get("CURSOR_AGENT_PERMISSION_TIMEOUT_SECONDS", "10"))
+
         while True:
-            response = input("Allow this operation? (y/n): ").strip().lower()
+            response = _input_with_timeout(
+                f"Allow this operation? (y/n) [auto-{default_choice} in {timeout_seconds}s]: ",
+                timeout=timeout_seconds,
+                default=default_choice,
+            ).strip().lower()
             if response in ("y", "yes"):
                 logger.info(f"User granted permission for {operation}")
                 return True
@@ -172,8 +208,9 @@ class PermissionManager:
                 logger.info(f"User denied permission for {operation}")
                 return False
             else:
-                logger.debug("Invalid response, prompting again")
-                print("Please enter 'y' or 'n'")
+                logger.debug("Invalid response, defaulting to deny")
+                print("Invalid input - defaulting to 'n'")
+                return False
 
     def _evaluate_permission(self, request: PermissionRequest) -> PermissionStatus:
         """
