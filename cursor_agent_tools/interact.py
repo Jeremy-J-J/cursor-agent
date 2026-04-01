@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import asyncio
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable
@@ -120,6 +121,31 @@ class Colors:
     ENDC = "\033[0m"  # End color
     BOLD = "\033[1m"  # Bold
     UNDERLINE = "\033[4m"  # Underline
+
+
+def input_with_timeout(prompt: str, timeout: int = 10, default: str = "") -> str:
+    """Read user input with a timeout; return `default` if no input within `timeout` seconds."""
+    result: List[str] = []
+    event = threading.Event()
+
+    def _read() -> None:
+        try:
+            value = input(prompt)
+            result.append(value)
+        except EOFError:
+            result.append(default)
+        finally:
+            event.set()
+
+    thread = threading.Thread(target=_read, daemon=True)
+    thread.start()
+
+    timed_out = not event.wait(timeout=timeout)
+    if timed_out:
+        print(f"\n[Auto-selected default after {timeout}s timeout]")
+        return default
+
+    return result[0] if result else default
 
 
 async def print_status_before_agent(message: str, details: Optional[str] = None) -> None:
@@ -1038,7 +1064,15 @@ async def check_tool_call_limits(
         )
         print(f"\n{Colors.YELLOW}The agent has made {total_tool_calls} total tool calls in this session.{Colors.ENDC}")
         print(f"{Colors.YELLOW}Would you like to continue allowing the agent to make more changes?{Colors.ENDC}")
-        choice = input(f"{Colors.GREEN}Continue? (y/n): {Colors.ENDC}")
+        timeout_seconds = int(os.environ.get("CURSOR_AGENT_TOOLCALL_LIMIT_TIMEOUT_SECONDS", "10"))
+        choice = input_with_timeout(
+            f"{Colors.GREEN}Continue? (y/n) [auto-enter/continue in {timeout_seconds}s]: {Colors.ENDC}",
+            timeout=timeout_seconds,
+            default="",
+        )
+        # Treat Enter (empty input), EOF, or timeout as "continue"
+        if not str(choice).strip():
+            choice = "y"
 
         logger.info(f"User decision on continuing after max tool calls: {choice}")
 
